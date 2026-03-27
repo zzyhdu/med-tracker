@@ -1,0 +1,93 @@
+import { useState, useEffect } from 'react';
+import type { FormEvent } from 'react';
+import type { DrugProfile, DrugTracker, CalculatedInventory } from '../utils/InventoryEngine';
+
+interface Props {
+  profiles: DrugProfile[];
+  initialData?: CalculatedInventory; // The currently calculated one
+  onSave: (tracker: DrugTracker) => void;
+  onCancel: () => void;
+}
+
+export function TrackerForm({ profiles, initialData, onSave, onCancel }: Props) {
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(
+    initialData ? initialData.id : (profiles[0]?.id || '')
+  );
+  
+  const [inputBoxes, setInputBoxes] = useState<number>(0);
+  const [inputPills, setInputPills] = useState<number>(0);
+
+  const selectedProfile = profiles.find(p => p.id === selectedProfileId);
+
+  useEffect(() => {
+    if (initialData && selectedProfile) {
+      const currentInv = initialData.currentInventory;
+      const size = selectedProfile.packagingSize || 60;
+      setInputBoxes(Math.floor(currentInv / size));
+      setInputPills(currentInv % size);
+    }
+  }, [initialData, selectedProfile]);
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!selectedProfile) return;
+    
+    const size = selectedProfile.packagingSize || 60;
+    const totalCalculatedInventory = (Number(inputBoxes) * size) + Number(inputPills);
+    if (totalCalculatedInventory < 0) return;
+
+    onSave({
+      drugId: selectedProfile.id,
+      baseInventory: totalCalculatedInventory,
+      baseDate: new Date().toISOString()
+    });
+  };
+
+  if (!selectedProfile) {
+    return <div className="card">无可用药品字典，请先去配置库添加。</div>;
+  }
+
+  return (
+    <div className="card">
+      <h2>{initialData ? '盘点校准库存 / 批量补齐录入' : '开始追踪新药'}</h2>
+      <form onSubmit={handleSubmit} style={{ marginTop: '16px' }}>
+        <div className="input-block">
+          <label>关联药品字典规格</label>
+          <select 
+            value={selectedProfileId} 
+            onChange={(e) => setSelectedProfileId(e.target.value)} 
+            disabled={!!initialData}
+            style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+          >
+            {profiles.map(p => (
+              <option key={p.id} value={p.id}>{p.name} (1{p.packagingUnit}={p.packagingSize}{p.pillUnit})</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="input-block">
+          <label>{initialData ? '覆盖盘点：请输入目前手里真实的余货总量' : '请输入目前的初始库存量'}</label>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input type="number" value={inputBoxes} onChange={e => setInputBoxes(Number(e.target.value))} min={0} />
+              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{selectedProfile.packagingUnit}</div>
+            </div>
+            <span>余</span>
+            <div style={{ flex: 1, position: 'relative' }}>
+              <input type="number" value={inputPills} onChange={e => setInputPills(Number(e.target.value))} min={0} />
+              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{selectedProfile.pillUnit}</div>
+            </div>
+          </div>
+          <p style={{ fontSize: '0.85rem', marginTop: '8px', color: 'var(--color-accent)', fontWeight: 600 }}>
+            转换合并计算底层记录值：{(Number(inputBoxes) * (selectedProfile.packagingSize || 60)) + Number(inputPills)} {selectedProfile.pillUnit || '粒'}
+          </p>
+        </div>
+
+        <div className="flex-between gap-4" style={{ marginTop: '24px' }}>
+          <button type="button" className="btn" onClick={onCancel} style={{ flex: 1 }}>取消</button>
+          <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>{initialData ? '保存校准记录' : '开始系统管理'}</button>
+        </div>
+      </form>
+    </div>
+  );
+}
