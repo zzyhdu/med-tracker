@@ -19,7 +19,21 @@ export function InventoryDashboard({ profiles, trackers, onRecalibrate, onDelete
         results.push(InventoryEngine.calculate(profile, tracker));
       }
     }
-    return results.sort((a, b) => a.daysRemaining - b.daysRemaining);
+    return results.sort((a, b) => {
+      // 亮红灯的优先置顶
+      if (a.isLowStock && !b.isLowStock) return -1;
+      if (!a.isLowStock && b.isLowStock) return 1;
+      
+      // 按需服用的药（Infinity）排到最底下
+      if (a.daysRemaining === Number.POSITIVE_INFINITY && b.daysRemaining === Number.POSITIVE_INFINITY) {
+        return a.name.localeCompare(b.name);
+      }
+      if (a.daysRemaining === Number.POSITIVE_INFINITY) return 1;
+      if (b.daysRemaining === Number.POSITIVE_INFINITY) return -1;
+      
+      // 剩下的按可吃天数从小到大排（快吃完的在最前面）
+      return a.daysRemaining - b.daysRemaining;
+    });
   }, [profiles, trackers]);
 
   if (calculatedMeds.length === 0) {
