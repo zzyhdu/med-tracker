@@ -80,9 +80,10 @@ export function InventoryDashboard({ profiles, trackers, onRecalibrate, onDelete
                 门诊标准医嘱: <strong style={{color: 'var(--color-text-primary)'}}>{med.frequency ? FREQUENCY_LABELS[med.frequency] : '每日需总服'} - 每次 {med.dosePerTime || med.dailyDosage}</strong> {pillUnit}
               </p>
               <div className="flex-between" style={{ width: '100%', gap: '8px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button className="btn" style={{borderStyle: 'dashed', backgroundColor: 'transparent'}} title="损耗调整" onClick={() => onQuickAdjust(med, med.currentInventory, -1)}>-1{pillUnit}</button>
-                  <button className="btn btn-primary" title="复诊后买大包装补货" onClick={() => onQuickAdjust(med, med.currentInventory, size)}>刚刚已买 +1{boxUnit}</button>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button className="btn" style={{borderStyle: 'dashed', backgroundColor: 'transparent'}} title="损耗微调" onClick={() => onQuickAdjust(med, med.currentInventory, -1)}>-1{pillUnit}</button>
+                  <button className="btn" style={{borderStyle: 'dashed', backgroundColor: 'transparent'}} title="多出微调" onClick={() => onQuickAdjust(med, med.currentInventory, 1)}>+1{pillUnit}</button>
+                  <button className="btn btn-primary" title="复诊后买大包装补货" onClick={() => onQuickAdjust(med, med.currentInventory, size)}>已买 +1{boxUnit}</button>
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                    <button className="btn" onClick={() => onRecalibrate(med)}>盘点重入</button>

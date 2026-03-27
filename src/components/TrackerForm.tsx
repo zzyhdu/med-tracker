@@ -49,6 +49,16 @@ export function TrackerForm({ profiles, initialData, onSave, onCancel }: Props) 
 
   return (
     <div className="card">
+      <style>{`
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type="number"] {
+          -moz-appearance: textfield;
+        }
+      `}</style>
       <h2>{initialData ? '盘点校准库存 / 批量补齐录入' : '开始追踪新药'}</h2>
       <form onSubmit={handleSubmit} style={{ marginTop: '16px' }}>
         <div className="input-block">
