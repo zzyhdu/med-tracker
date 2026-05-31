@@ -1,41 +1,77 @@
 import { useState, useEffect } from 'react';
-import { supabase } from './utils/supabaseClient';
-import type { Session } from '@supabase/supabase-js';import { InventoryEngine } from './utils/InventoryEngine';
+import { InventoryEngine } from './utils/InventoryEngine';
 import type { DrugProfile, DrugTracker, CalculatedInventory } from './utils/InventoryEngine';
+import { ApiClient } from './utils/apiClient';
+import type { AuthUser } from './utils/apiClient';
 import { CloudStorageUtils } from './utils/StorageUtils';
 import { InventoryDashboard } from './components/InventoryDashboard';
 import { DrugLibraryPanel } from './components/DrugLibraryPanel';
 import { TrackerForm } from './components/TrackerForm';
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-    return () => subscription.unsubscribe();
+    let mounted = true;
+
+    ApiClient.getSession()
+      .then(currentUser => {
+        if (mounted) setUser(currentUser);
+      })
+      .catch(error => {
+        console.error('Error checking session:', error);
+        if (mounted) setUser(null);
+      })
+      .finally(() => {
+        if (mounted) setCheckingSession(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  if (!session) {
+  const handleLogout = async () => {
+    await ApiClient.logout();
+    setUser(null);
+  };
+
+  if (checkingSession) {
+    return <LoadingScreen text="正在校验本地安全会话..." />;
+  }
+
+  if (!user) {
     return (
       <div style={{ maxWidth: '400px', margin: '60px auto', padding: '32px', background: 'var(--color-bg)', borderRadius: '16px', border: '1px solid var(--color-border)', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
         <h1 style={{ textAlign: 'center', marginBottom: '8px', color: 'var(--color-text-primary)' }}>云端医疗保险柜</h1>
-        <p style={{ textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: '32px', fontSize: '0.9rem' }}>底层已采用 RLS 级别加密，闲杂人等无法探视。<br /><br />请输入您的通信口令：</p>
-        <LoginForm />
+        <p style={{ textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: '32px', fontSize: '0.9rem' }}>底层已接入私有后端会话与数据库隔离。<br /><br />请输入您的通信口令：</p>
+        <LoginForm onLogin={setUser} />
       </div>
     );
   }
 
-  return <MainApp userId={session.user.id} />;
+  return <MainApp onLogout={handleLogout} />;
 }
 
-function MainApp({ userId }: { userId: string }) {
+function LoadingScreen({ text }: { text: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--color-text-secondary)', flexDirection: 'column', gap: '16px' }}>
+      <div style={{ width: '40px', height: '40px', borderRadius: '50%', border: '4px solid var(--color-border)', borderTopColor: 'var(--color-accent)', animation: 'spin 1s linear infinite' }}></div>
+      {text}
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+    </div>
+  );
+}
+
+function MainApp({ onLogout }: { onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'library'>('dashboard');
 
   const [profiles, setProfiles] = useState<DrugProfile[]>([]);
@@ -49,15 +85,15 @@ function MainApp({ userId }: { userId: string }) {
     async function loadData() {
       setLoading(true);
       const [loadedProfiles, loadedTrackers] = await Promise.all([
-        CloudStorageUtils.loadProfiles(userId),
-        CloudStorageUtils.loadTrackers(userId)
+        CloudStorageUtils.loadProfiles(),
+        CloudStorageUtils.loadTrackers()
       ]);
       setProfiles(loadedProfiles);
       setTrackers(loadedTrackers);
       setLoading(false);
     }
     loadData();
-  }, [userId]);
+  }, []);
 
   const handleSaveProfile = async (p: DrugProfile) => {
     setProfiles(prev => {
@@ -65,13 +101,13 @@ function MainApp({ userId }: { userId: string }) {
       if (exists) return prev.map(x => x.id === p.id ? p : x);
       return [...prev, p];
     });
-    await CloudStorageUtils.saveProfile(p, userId);
+    await CloudStorageUtils.saveProfile(p);
   };
 
   const handleDeleteProfile = async (id: string) => {
     setProfiles(prev => prev.filter(x => x.id !== id));
     setTrackers(prev => prev.filter(t => t.drugId !== id));
-    await CloudStorageUtils.deleteProfile(id); // Supabase has ON DELETE CASCADE configured in SQL
+    await CloudStorageUtils.deleteProfile(id);
   };
 
   const handleSaveTracker = async (t: DrugTracker) => {
@@ -82,7 +118,7 @@ function MainApp({ userId }: { userId: string }) {
     });
     setShowAddTrackerForm(false);
     setEditingTracker(null);
-    await CloudStorageUtils.saveTracker(t, userId);
+    await CloudStorageUtils.saveTracker(t);
   };
 
   const handleDeleteTracker = async (drugId: string) => {
@@ -93,24 +129,11 @@ function MainApp({ userId }: { userId: string }) {
   const handleQuickAdjustTracker = async (tracker: DrugTracker, currentInv: number, adjustment: number) => {
     const updated = InventoryEngine.recalibrate(tracker, currentInv + adjustment);
     setTrackers(prev => prev.map(t => t.drugId === tracker.drugId ? updated : t));
-    await CloudStorageUtils.saveTracker(updated, userId);
+    await CloudStorageUtils.saveTracker(updated);
   };
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'var(--color-text-secondary)', flexDirection: 'column', gap: '16px' }}>
-        <div style={{ width: '40px', height: '40px', borderRadius: '50%', border: '4px solid var(--color-border)', borderTopColor: 'var(--color-primary)', animation: 'spin 1s linear infinite' }}></div>
-        正在建立高强加密链路，为您同步主数据库...
-        <style>
-          {`
-            @keyframes spin {
-              0% { transform: rotate(0deg); }
-              100% { transform: rotate(360deg); }
-            }
-          `}
-        </style>
-      </div>
-    );
+    return <LoadingScreen text="正在建立高强加密链路，为您同步主数据库..." />;
   }
 
   return (
@@ -118,7 +141,7 @@ function MainApp({ userId }: { userId: string }) {
       <header style={{ marginBottom: '16px' }}>
         <div className="flex-between">
           <h1 style={{ color: 'var(--color-text-primary)' }}>私有医疗保险库</h1>
-          <button className="btn" style={{ fontSize: '0.8rem', padding: '6px 12px' }} onClick={() => supabase.auth.signOut()}>安全切网登出</button>
+          <button className="btn" style={{ fontSize: '0.8rem', padding: '6px 12px' }} onClick={onLogout}>安全切网登出</button>
         </div>
 
         <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--color-border)', margin: '16px 0', paddingBottom: '16px' }}>
@@ -143,7 +166,7 @@ function MainApp({ userId }: { userId: string }) {
         {activeTab === 'dashboard' && (
           <>
             <div className="flex-between" style={{ marginBottom: '16px' }}>
-              <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>数据由全球安全节点交叉同步保护</p>
+              <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>数据由私有后端与 PostgreSQL 同步保护</p>
               {!showAddTrackerForm && !editingTracker && (
                 <button className="btn btn-primary" onClick={() => {
                   if (profiles.length === 0) {
@@ -160,12 +183,14 @@ function MainApp({ userId }: { userId: string }) {
 
             {showAddTrackerForm ? (
               <TrackerForm
+                key="new-tracker"
                 profiles={profiles}
                 onSave={handleSaveTracker}
                 onCancel={() => setShowAddTrackerForm(false)}
               />
             ) : editingTracker ? (
               <TrackerForm
+                key={`edit-${editingTracker.drugId}`}
                 profiles={profiles}
                 initialData={editingTracker}
                 onSave={handleSaveTracker}
@@ -195,7 +220,7 @@ function MainApp({ userId }: { userId: string }) {
   );
 }
 
-function LoginForm() {
+function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -203,11 +228,15 @@ function LoginForm() {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      alert(error.message === 'Invalid login credentials' ? '密码或账号错误！请检查输入' : error.message);
+    try {
+      const loggedInUser = await ApiClient.login(email, password);
+      onLogin(loggedInUser);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '登录失败';
+      alert(message === 'Invalid email or password' ? '密码或账号错误！请检查输入' : message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

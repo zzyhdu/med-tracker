@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import type { FormEvent } from 'react';
 import type { DrugProfile, DrugTracker, CalculatedInventory } from '../utils/InventoryEngine';
 
@@ -9,24 +9,29 @@ interface Props {
   onCancel: () => void;
 }
 
+function getInventoryInputs(profiles: DrugProfile[], profileId: string, initialData?: CalculatedInventory) {
+  const profile = profiles.find(p => p.id === profileId);
+
+  if (!initialData || !profile) {
+    return { boxes: 0, pills: 0 };
+  }
+
+  const size = profile.packagingSize || 60;
+  return {
+    boxes: Math.floor(initialData.currentInventory / size),
+    pills: initialData.currentInventory % size,
+  };
+}
+
 export function TrackerForm({ profiles, initialData, onSave, onCancel }: Props) {
-  const [selectedProfileId, setSelectedProfileId] = useState<string>(
-    initialData ? initialData.id : (profiles[0]?.id || '')
-  );
+  const initialProfileId = initialData ? initialData.id : (profiles[0]?.id || '');
+  const initialInputs = getInventoryInputs(profiles, initialProfileId, initialData);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(initialProfileId);
   
-  const [inputBoxes, setInputBoxes] = useState<number>(0);
-  const [inputPills, setInputPills] = useState<number>(0);
+  const [inputBoxes, setInputBoxes] = useState<number>(initialInputs.boxes);
+  const [inputPills, setInputPills] = useState<number>(initialInputs.pills);
 
   const selectedProfile = profiles.find(p => p.id === selectedProfileId);
-
-  useEffect(() => {
-    if (initialData && selectedProfile) {
-      const currentInv = initialData.currentInventory;
-      const size = selectedProfile.packagingSize || 60;
-      setInputBoxes(Math.floor(currentInv / size));
-      setInputPills(currentInv % size);
-    }
-  }, [initialData, selectedProfile]);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
