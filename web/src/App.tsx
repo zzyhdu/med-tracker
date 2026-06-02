@@ -4,6 +4,12 @@ import type { DrugProfile, DrugTracker, CalculatedInventory } from './utils/Inve
 import { ApiClient } from './utils/apiClient';
 import type { AuthUser } from './utils/apiClient';
 import { CloudStorageUtils } from './utils/StorageUtils';
+import {
+  deleteProfileLocally,
+  deleteTrackerLocally,
+  upsertProfile,
+  upsertTracker,
+} from './utils/stateUpdates';
 import { InventoryDashboard } from './components/InventoryDashboard';
 import { DrugLibraryPanel } from './components/DrugLibraryPanel';
 import { TrackerForm } from './components/TrackerForm';
@@ -95,41 +101,73 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
     loadData();
   }, []);
 
+  const reportStorageFailure = (message: string) => {
+    alert(message);
+  };
+
   const handleSaveProfile = async (p: DrugProfile) => {
-    setProfiles(prev => {
-      const exists = prev.find(x => x.id === p.id);
-      if (exists) return prev.map(x => x.id === p.id ? p : x);
-      return [...prev, p];
-    });
-    await CloudStorageUtils.saveProfile(p);
+    const previousProfiles = profiles;
+    setProfiles(currentProfiles => upsertProfile(currentProfiles, p));
+
+    const saved = await CloudStorageUtils.saveProfile(p);
+    if (!saved) {
+      setProfiles(previousProfiles);
+      reportStorageFailure('保存药品规格失败，已恢复到修改前的状态。请稍后重试。');
+    }
   };
 
   const handleDeleteProfile = async (id: string) => {
-    setProfiles(prev => prev.filter(x => x.id !== id));
-    setTrackers(prev => prev.filter(t => t.drugId !== id));
-    await CloudStorageUtils.deleteProfile(id);
+    const previousProfiles = profiles;
+    const previousTrackers = trackers;
+    const next = deleteProfileLocally(previousProfiles, previousTrackers, id);
+
+    setProfiles(next.profiles);
+    setTrackers(next.trackers);
+
+    const deleted = await CloudStorageUtils.deleteProfile(id);
+    if (!deleted) {
+      setProfiles(previousProfiles);
+      setTrackers(previousTrackers);
+      reportStorageFailure('删除药品规格失败，已恢复到删除前的状态。请稍后重试。');
+    }
   };
 
   const handleSaveTracker = async (t: DrugTracker) => {
-    setTrackers(prev => {
-      const exists = prev.find(x => x.drugId === t.drugId);
-      if (exists) return prev.map(x => x.drugId === t.drugId ? t : x);
-      return [...prev, t];
-    });
+    const previousTrackers = trackers;
+    setTrackers(currentTrackers => upsertTracker(currentTrackers, t));
     setShowAddTrackerForm(false);
     setEditingTracker(null);
-    await CloudStorageUtils.saveTracker(t);
+
+    const saved = await CloudStorageUtils.saveTracker(t);
+    if (!saved) {
+      setTrackers(previousTrackers);
+      setShowAddTrackerForm(!previousTrackers.some(tracker => tracker.drugId === t.drugId));
+      setEditingTracker(null);
+      reportStorageFailure('保存库存追踪失败，已恢复到修改前的状态。请稍后重试。');
+    }
   };
 
   const handleDeleteTracker = async (drugId: string) => {
-    setTrackers(prev => prev.filter(t => t.drugId !== drugId));
-    await CloudStorageUtils.deleteTracker(drugId);
+    const previousTrackers = trackers;
+    setTrackers(currentTrackers => deleteTrackerLocally(currentTrackers, drugId));
+
+    const deleted = await CloudStorageUtils.deleteTracker(drugId);
+    if (!deleted) {
+      setTrackers(previousTrackers);
+      reportStorageFailure('停用库存追踪失败，已恢复到停用前的状态。请稍后重试。');
+    }
   };
 
   const handleQuickAdjustTracker = async (tracker: DrugTracker, currentInv: number, adjustment: number) => {
+    const previousTrackers = trackers;
     const updated = InventoryEngine.recalibrate(tracker, currentInv + adjustment);
-    setTrackers(prev => prev.map(t => t.drugId === tracker.drugId ? updated : t));
-    await CloudStorageUtils.saveTracker(updated);
+    setTrackers(currentTrackers => upsertTracker(currentTrackers, updated));
+
+    const saved = await CloudStorageUtils.saveTracker(updated);
+    if (!saved) {
+      setTrackers(previousTrackers);
+      reportStorageFailure('库存微调失败，已恢复到调整前的状态。请稍后重试。');
+    }
   };
 
   if (loading) {
