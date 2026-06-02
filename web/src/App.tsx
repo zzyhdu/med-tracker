@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { InventoryEngine } from './utils/InventoryEngine';
 import type { DrugProfile, DrugTracker, CalculatedInventory } from './utils/InventoryEngine';
 import { ApiClient } from './utils/apiClient';
-import type { AuthUser } from './utils/apiClient';
 import {
   deleteProfileOptimistically,
   deleteTrackerOptimistically,
@@ -14,14 +13,14 @@ import {
   saveTrackerOptimistically,
 } from './utils/inventoryQuery';
 import { createToast } from './utils/toast';
+import { clearSessionQueries, sessionQueryKeys, setSessionUser } from './utils/sessionQuery';
 import type { ToastMessage, ToastTone } from './utils/toast';
 import { InventoryDashboard } from './components/InventoryDashboard';
 import { DrugLibraryPanel } from './components/DrugLibraryPanel';
 import { TrackerForm } from './components/TrackerForm';
 
 export default function App() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const queryClient = useQueryClient();
   const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const showToast = (message: string, tone: ToastTone = 'info') => {
@@ -32,41 +31,48 @@ export default function App() {
     }, 4000);
   };
 
-  useEffect(() => {
-    let mounted = true;
+  const sessionQuery = useQuery({
+    queryKey: sessionQueryKeys.session,
+    queryFn: ApiClient.getSession,
+    retry: false,
+  });
 
-    ApiClient.getSession()
-      .then(currentUser => {
-        if (mounted) setUser(currentUser);
-      })
-      .catch(error => {
-        console.error('Error checking session:', error);
-        if (mounted) setUser(null);
-      })
-      .finally(() => {
-        if (mounted) setCheckingSession(false);
-      });
+  const loginMutation = useMutation({
+    mutationFn: ({ email, password }: { email: string; password: string }) => ApiClient.login(email, password),
+    onSuccess: loggedInUser => {
+      setSessionUser(queryClient, loggedInUser);
+    },
+    onError: error => {
+      const message = error instanceof Error ? error.message : '登录失败';
+      showToast(message === 'Invalid email or password' ? '密码或账号错误！请检查输入' : message, 'error');
+    },
+  });
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  const logoutMutation = useMutation({
+    mutationFn: ApiClient.logout,
+    onSettled: () => {
+      clearSessionQueries(queryClient);
+    },
+  });
 
-  const handleLogout = async () => {
-    await ApiClient.logout();
-    setUser(null);
+  const handleLogin = (email: string, password: string) => {
+    loginMutation.mutate({ email, password });
   };
 
-  if (checkingSession) {
+  const handleLogout = () => {
+    logoutMutation.mutate();
+  };
+
+  if (sessionQuery.isLoading) {
     return <LoadingScreen text="正在校验本地安全会话..." />;
   }
 
-  if (!user) {
+  if (!sessionQuery.data) {
     return (
       <div style={{ maxWidth: '400px', margin: '60px auto', padding: '32px', background: 'var(--color-bg)', borderRadius: '16px', border: '1px solid var(--color-border)', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
         <h1 style={{ textAlign: 'center', marginBottom: '8px', color: 'var(--color-text-primary)' }}>云端医疗保险柜</h1>
         <p style={{ textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: '32px', fontSize: '0.9rem' }}>底层已接入私有后端会话与数据库隔离。<br /><br />请输入您的通信口令：</p>
-        <LoginForm onLogin={setUser} onError={message => showToast(message, 'error')} />
+        <LoginForm onLogin={handleLogin} loading={loginMutation.isPending} />
         <ToastViewport toast={toast} onDismiss={() => setToast(null)} />
       </div>
     );
@@ -310,23 +316,18 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   );
 }
 
-function LoginForm({ onLogin, onError }: { onLogin: (user: AuthUser) => void; onError: (message: string) => void }) {
+interface LoginFormProps {
+  onLogin: (email: string, password: string) => void;
+  loading: boolean;
+}
+
+function LoginForm({ onLogin, loading }: LoginFormProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    try {
-      const loggedInUser = await ApiClient.login(email, password);
-      onLogin(loggedInUser);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '登录失败';
-      onError(message === 'Invalid email or password' ? '密码或账号错误！请检查输入' : message);
-    } finally {
-      setLoading(false);
-    }
+    onLogin(email, password);
   };
 
   return (
