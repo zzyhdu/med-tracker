@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { InventoryEngine } from './utils/InventoryEngine';
 import type { DrugProfile, DrugTracker, CalculatedInventory } from './utils/InventoryEngine';
-import { ApiClient } from './utils/apiClient';
+import { ApiClient, getInventoryLoadErrorMessage, isAuthenticationError } from './utils/apiClient';
 import {
   deleteProfileOptimistically,
   deleteTrackerOptimistically,
@@ -122,6 +122,23 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   const profiles = profilesQuery.data ?? [];
   const trackers = trackersQuery.data ?? [];
   const loading = profilesQuery.isLoading || trackersQuery.isLoading;
+  const loadError = profilesQuery.error ?? trackersQuery.error;
+  const sessionExpiredToastShown = useRef(false);
+
+  useEffect(() => {
+    if (!isAuthenticationError(loadError)) return;
+
+    clearSessionQueries(queryClient);
+    if (!sessionExpiredToastShown.current) {
+      onNotify(getInventoryLoadErrorMessage(loadError), 'error');
+      sessionExpiredToastShown.current = true;
+    }
+  }, [loadError, onNotify, queryClient]);
+
+  const retryInventoryLoad = () => {
+    profilesQuery.refetch();
+    trackersQuery.refetch();
+  };
 
   const [showAddTrackerForm, setShowAddTrackerForm] = useState(false);
   const [editingTracker, setEditingTracker] = useState<CalculatedInventory | null>(null);
@@ -231,6 +248,15 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
     return <LoadingScreen text="正在建立高强加密链路，为您同步主数据库..." />;
   }
 
+  if (loadError && !isAuthenticationError(loadError)) {
+    return (
+      <>
+        <InventoryErrorState message={getInventoryLoadErrorMessage(loadError)} onRetry={retryInventoryLoad} />
+        <ToastViewport toast={toast} onDismiss={onDismissToast} />
+      </>
+    );
+  }
+
   return (
     <>
       <header style={{ marginBottom: '16px' }}>
@@ -313,6 +339,16 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
       </main>
       <ToastViewport toast={toast} onDismiss={onDismissToast} />
     </>
+  );
+}
+
+function InventoryErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="card" style={{ maxWidth: '520px', margin: '60px auto', textAlign: 'center' }}>
+      <h2 style={{ color: 'var(--color-text-primary)', marginBottom: '12px' }}>同步失败</h2>
+      <p style={{ color: 'var(--color-text-secondary)', marginBottom: '24px' }}>{message}</p>
+      <button type="button" className="btn btn-primary" onClick={onRetry}>重新加载</button>
+    </div>
   );
 }
 

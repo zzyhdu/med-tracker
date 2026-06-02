@@ -33,6 +33,28 @@ interface OkResponse {
   ok: boolean;
 }
 
+const GENERAL_INVENTORY_LOAD_ERROR_MESSAGE = '无法同步库存数据，请检查网络或稍后重试。';
+const SESSION_EXPIRED_ERROR_MESSAGE = '登录已过期，请重新登录。';
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export function isAuthenticationError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
+export function getInventoryLoadErrorMessage(error: unknown): string {
+  if (isAuthenticationError(error)) return SESSION_EXPIRED_ERROR_MESSAGE;
+  return GENERAL_INVENTORY_LOAD_ERROR_MESSAGE;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (!headers.has('Content-Type') && options.body) {
@@ -48,7 +70,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Request failed with status ${response.status}`);
+    throw new ApiError(payload?.error?.message || `Request failed with status ${response.status}`, response.status);
   }
 
   return payload as T;
