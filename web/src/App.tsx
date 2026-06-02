@@ -10,6 +10,8 @@ import {
   upsertProfile,
   upsertTracker,
 } from './utils/stateUpdates';
+import { createToast } from './utils/toast';
+import type { ToastMessage, ToastTone } from './utils/toast';
 import { InventoryDashboard } from './components/InventoryDashboard';
 import { DrugLibraryPanel } from './components/DrugLibraryPanel';
 import { TrackerForm } from './components/TrackerForm';
@@ -17,6 +19,15 @@ import { TrackerForm } from './components/TrackerForm';
 export default function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+
+  const showToast = (message: string, tone: ToastTone = 'info') => {
+    const nextToast = createToast(message, tone);
+    setToast(nextToast);
+    window.setTimeout(() => {
+      setToast(currentToast => currentToast?.id === nextToast.id ? null : currentToast);
+    }, 4000);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -52,12 +63,13 @@ export default function App() {
       <div style={{ maxWidth: '400px', margin: '60px auto', padding: '32px', background: 'var(--color-bg)', borderRadius: '16px', border: '1px solid var(--color-border)', boxShadow: '0 8px 30px rgba(0,0,0,0.05)' }}>
         <h1 style={{ textAlign: 'center', marginBottom: '8px', color: 'var(--color-text-primary)' }}>云端医疗保险柜</h1>
         <p style={{ textAlign: 'center', color: 'var(--color-text-secondary)', marginBottom: '32px', fontSize: '0.9rem' }}>底层已接入私有后端会话与数据库隔离。<br /><br />请输入您的通信口令：</p>
-        <LoginForm onLogin={setUser} />
+        <LoginForm onLogin={setUser} onError={message => showToast(message, 'error')} />
+        <ToastViewport toast={toast} onDismiss={() => setToast(null)} />
       </div>
     );
   }
 
-  return <MainApp onLogout={handleLogout} />;
+  return <MainApp onLogout={handleLogout} onNotify={showToast} toast={toast} onDismissToast={() => setToast(null)} />;
 }
 
 function LoadingScreen({ text }: { text: string }) {
@@ -77,7 +89,14 @@ function LoadingScreen({ text }: { text: string }) {
   );
 }
 
-function MainApp({ onLogout }: { onLogout: () => void }) {
+interface MainAppProps {
+  onLogout: () => void;
+  onNotify: (message: string, tone?: ToastTone) => void;
+  toast: ToastMessage | null;
+  onDismissToast: () => void;
+}
+
+function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'library'>('dashboard');
 
   const [profiles, setProfiles] = useState<DrugProfile[]>([]);
@@ -102,7 +121,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
   }, []);
 
   const reportStorageFailure = (message: string) => {
-    alert(message);
+    onNotify(message, 'error');
   };
 
   const handleSaveProfile = async (p: DrugProfile) => {
@@ -208,7 +227,7 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
               {!showAddTrackerForm && !editingTracker && (
                 <button className="btn btn-primary" onClick={() => {
                   if (profiles.length === 0) {
-                    alert('字典库是空的！请先去【字典库】添加基础药物字典！');
+                    onNotify('字典库是空的！请先去【字典库】添加基础药物字典！', 'info');
                     setActiveTab('library');
                     return;
                   }
@@ -254,11 +273,12 @@ function MainApp({ onLogout }: { onLogout: () => void }) {
           />
         )}
       </main>
+      <ToastViewport toast={toast} onDismiss={onDismissToast} />
     </>
   );
 }
 
-function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
+function LoginForm({ onLogin, onError }: { onLogin: (user: AuthUser) => void; onError: (message: string) => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -271,7 +291,7 @@ function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
       onLogin(loggedInUser);
     } catch (error) {
       const message = error instanceof Error ? error.message : '登录失败';
-      alert(message === 'Invalid email or password' ? '密码或账号错误！请检查输入' : message);
+      onError(message === 'Invalid email or password' ? '密码或账号错误！请检查输入' : message);
     } finally {
       setLoading(false);
     }
@@ -291,5 +311,18 @@ function LoginForm({ onLogin }: { onLogin: (user: AuthUser) => void }) {
         {loading ? '校验握手中...' : '安全登入'}
       </button>
     </form>
+  );
+}
+
+function ToastViewport({ toast, onDismiss }: { toast: ToastMessage | null; onDismiss: () => void }) {
+  if (!toast) return null;
+
+  return (
+    <div className="toast-viewport" role="status" aria-live="polite">
+      <div className={`toast toast-${toast.tone}`}>
+        <span>{toast.message}</span>
+        <button type="button" className="toast-close" aria-label="关闭提示" onClick={onDismiss}>×</button>
+      </div>
+    </div>
   );
 }
