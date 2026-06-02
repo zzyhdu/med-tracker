@@ -12,6 +12,8 @@ import {
   saveProfileOptimistically,
   saveTrackerOptimistically,
 } from './utils/inventoryQuery';
+import { createConfirmRequest } from './utils/confirmDialog';
+import type { ConfirmRequest } from './utils/confirmDialog';
 import { createToast } from './utils/toast';
 import { clearSessionQueries, sessionQueryKeys, setSessionUser } from './utils/sessionQuery';
 import type { ToastMessage, ToastTone } from './utils/toast';
@@ -107,6 +109,7 @@ interface MainAppProps {
 
 function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'library'>('dashboard');
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const queryClient = useQueryClient();
 
   const profilesQuery = useQuery({
@@ -226,7 +229,15 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   };
 
   const handleDeleteProfile = (id: string) => {
-    deleteProfileMutation.mutate(id);
+    const profile = profiles.find(item => item.id === id);
+    setConfirmRequest(createConfirmRequest({
+      title: '确认归档删除药品规格？',
+      message: profile
+        ? `将删除「${profile.name}」的规格字典，并停用看板里同款药的追踪。此操作执行后会立即同步到后端。`
+        : '将删除该规格字典，并停用看板里同款药的追踪。此操作执行后会立即同步到后端。',
+      confirmLabel: '归档删除',
+      onConfirm: () => deleteProfileMutation.mutate(id),
+    }));
   };
 
   const handleSaveTracker = (t: DrugTracker) => {
@@ -236,7 +247,15 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   };
 
   const handleDeleteTracker = (drugId: string) => {
-    deleteTrackerMutation.mutate(drugId);
+    const profile = profiles.find(item => item.id === drugId);
+    setConfirmRequest(createConfirmRequest({
+      title: '确认停用库存追踪？',
+      message: profile
+        ? `将停止追踪「${profile.name}」的库存。之后仍可从规格库中再次添加。`
+        : '将停止追踪该药品库存。之后仍可从规格库中再次添加。',
+      confirmLabel: '停用追踪',
+      onConfirm: () => deleteTrackerMutation.mutate(drugId),
+    }));
   };
 
   const handleQuickAdjustTracker = (tracker: DrugTracker, currentInv: number, adjustment: number) => {
@@ -337,8 +356,47 @@ function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
           />
         )}
       </main>
+      <ConfirmDialog
+        request={confirmRequest}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={() => {
+          confirmRequest?.onConfirm();
+          setConfirmRequest(null);
+        }}
+      />
       <ToastViewport toast={toast} onDismiss={onDismissToast} />
     </>
+  );
+}
+
+function ConfirmDialog({
+  request,
+  onCancel,
+  onConfirm,
+}: {
+  request: ConfirmRequest | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!request) return null;
+
+  return (
+    <div className="confirm-backdrop" role="presentation">
+      <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby={`${request.id}-title`}>
+        <h2 id={`${request.id}-title`}>{request.title}</h2>
+        <p>{request.message}</p>
+        <div className="confirm-actions">
+          <button type="button" className="btn" onClick={onCancel}>{request.cancelLabel}</button>
+          <button
+            type="button"
+            className={`btn ${request.tone === 'danger' ? 'btn-danger' : 'btn-primary'}`}
+            onClick={onConfirm}
+          >
+            {request.confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

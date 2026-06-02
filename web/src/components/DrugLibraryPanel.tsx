@@ -168,7 +168,7 @@ export function DrugLibraryPanel({ profiles, onSaveProfile, onDeleteProfile }: P
             </div>
             <div style={{ display: 'flex', gap: '8px', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '12px' }}>
               <button className="btn" style={{ width: '100%', minWidth: '130px'}} onClick={() => openForm(p)}>修改规格/医嘱</button>
-              <button className="btn btn-danger" style={{ width: '100%', minWidth: '130px'}} onClick={() => { if(window.confirm('彻底删除此字典？此操作会令追踪看板里同款药失效。')) onDeleteProfile(p.id); }}>归档删除</button>
+              <button className="btn btn-danger" style={{ width: '100%', minWidth: '130px'}} onClick={() => onDeleteProfile(p.id)}>归档删除</button>
             </div>
           </div>
         ))

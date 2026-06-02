@@ -101,7 +101,7 @@ export function InventoryDashboard({ profiles, trackers, onRecalibrate, onDelete
                 </div>
                 <div style={{ display: 'flex', gap: '8px' }}>
                    <button className="btn" onClick={() => onRecalibrate(med)}>盘点重入</button>
-                   <button className="btn btn-danger" onClick={() => { if(window.confirm('停止追踪后，可以从规格库中再次添加。确定吗？')) onDeleteTracker(med.drugId); }}>停用</button>
+                   <button className="btn btn-danger" onClick={() => onDeleteTracker(med.drugId)}>停用</button>
                 </div>
               </div>
             </div>
