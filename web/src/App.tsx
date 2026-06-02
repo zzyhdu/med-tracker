@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { InventoryEngine } from './utils/InventoryEngine';
 import type { DrugProfile, DrugTracker, CalculatedInventory } from './utils/InventoryEngine';
 import { ApiClient } from './utils/apiClient';
 import type { AuthUser } from './utils/apiClient';
-import { CloudStorageUtils } from './utils/StorageUtils';
 import {
-  deleteProfileLocally,
-  deleteTrackerLocally,
-  upsertProfile,
-  upsertTracker,
-} from './utils/stateUpdates';
+  deleteProfileOptimistically,
+  deleteTrackerOptimistically,
+  getInventoryRollbackContext,
+  inventoryQueryKeys,
+  restoreInventoryRollbackContext,
+  saveProfileOptimistically,
+  saveTrackerOptimistically,
+} from './utils/inventoryQuery';
 import { createToast } from './utils/toast';
 import type { ToastMessage, ToastTone } from './utils/toast';
 import { InventoryDashboard } from './components/InventoryDashboard';
@@ -98,95 +101,124 @@ interface MainAppProps {
 
 function MainApp({ onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'library'>('dashboard');
+  const queryClient = useQueryClient();
 
-  const [profiles, setProfiles] = useState<DrugProfile[]>([]);
-  const [trackers, setTrackers] = useState<DrugTracker[]>([]);
-  const [loading, setLoading] = useState(true);
+  const profilesQuery = useQuery({
+    queryKey: inventoryQueryKeys.profiles,
+    queryFn: ApiClient.listProfiles,
+  });
+
+  const trackersQuery = useQuery({
+    queryKey: inventoryQueryKeys.trackers,
+    queryFn: ApiClient.listTrackers,
+  });
+
+  const profiles = profilesQuery.data ?? [];
+  const trackers = trackersQuery.data ?? [];
+  const loading = profilesQuery.isLoading || trackersQuery.isLoading;
 
   const [showAddTrackerForm, setShowAddTrackerForm] = useState(false);
   const [editingTracker, setEditingTracker] = useState<CalculatedInventory | null>(null);
-
-  useEffect(() => {
-    async function loadData() {
-      setLoading(true);
-      const [loadedProfiles, loadedTrackers] = await Promise.all([
-        CloudStorageUtils.loadProfiles(),
-        CloudStorageUtils.loadTrackers()
-      ]);
-      setProfiles(loadedProfiles);
-      setTrackers(loadedTrackers);
-      setLoading(false);
-    }
-    loadData();
-  }, []);
 
   const reportStorageFailure = (message: string) => {
     onNotify(message, 'error');
   };
 
-  const handleSaveProfile = async (p: DrugProfile) => {
-    const previousProfiles = profiles;
-    setProfiles(currentProfiles => upsertProfile(currentProfiles, p));
-
-    const saved = await CloudStorageUtils.saveProfile(p);
-    if (!saved) {
-      setProfiles(previousProfiles);
+  const saveProfileMutation = useMutation({
+    mutationFn: ApiClient.saveProfile,
+    onMutate: async (profile: DrugProfile) => {
+      await queryClient.cancelQueries({ queryKey: inventoryQueryKeys.profiles });
+      const context = getInventoryRollbackContext(queryClient);
+      saveProfileOptimistically(queryClient, profile);
+      return context;
+    },
+    onError: (_error, _profile, context) => {
+      if (context) restoreInventoryRollbackContext(queryClient, context);
       reportStorageFailure('保存药品规格失败，已恢复到修改前的状态。请稍后重试。');
-    }
-  };
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.profiles });
+    },
+  });
 
-  const handleDeleteProfile = async (id: string) => {
-    const previousProfiles = profiles;
-    const previousTrackers = trackers;
-    const next = deleteProfileLocally(previousProfiles, previousTrackers, id);
-
-    setProfiles(next.profiles);
-    setTrackers(next.trackers);
-
-    const deleted = await CloudStorageUtils.deleteProfile(id);
-    if (!deleted) {
-      setProfiles(previousProfiles);
-      setTrackers(previousTrackers);
+  const deleteProfileMutation = useMutation({
+    mutationFn: ApiClient.deleteProfile,
+    onMutate: async (profileId: string) => {
+      await Promise.all([
+        queryClient.cancelQueries({ queryKey: inventoryQueryKeys.profiles }),
+        queryClient.cancelQueries({ queryKey: inventoryQueryKeys.trackers }),
+      ]);
+      const context = getInventoryRollbackContext(queryClient);
+      deleteProfileOptimistically(queryClient, profileId);
+      return context;
+    },
+    onError: (_error, _profileId, context) => {
+      if (context) restoreInventoryRollbackContext(queryClient, context);
       reportStorageFailure('删除药品规格失败，已恢复到删除前的状态。请稍后重试。');
-    }
-  };
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.profiles });
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.trackers });
+    },
+  });
 
-  const handleSaveTracker = async (t: DrugTracker) => {
-    const previousTrackers = trackers;
-    setTrackers(currentTrackers => upsertTracker(currentTrackers, t));
-    setShowAddTrackerForm(false);
-    setEditingTracker(null);
-
-    const saved = await CloudStorageUtils.saveTracker(t);
-    if (!saved) {
-      setTrackers(previousTrackers);
-      setShowAddTrackerForm(!previousTrackers.some(tracker => tracker.drugId === t.drugId));
+  const saveTrackerMutation = useMutation({
+    mutationFn: ApiClient.saveTracker,
+    onMutate: async (tracker: DrugTracker) => {
+      await queryClient.cancelQueries({ queryKey: inventoryQueryKeys.trackers });
+      const context = getInventoryRollbackContext(queryClient);
+      saveTrackerOptimistically(queryClient, tracker);
+      return context;
+    },
+    onError: (_error, tracker, context) => {
+      if (context) restoreInventoryRollbackContext(queryClient, context);
+      setShowAddTrackerForm(!context?.previousTrackers.some(previousTracker => previousTracker.drugId === tracker.drugId));
       setEditingTracker(null);
       reportStorageFailure('保存库存追踪失败，已恢复到修改前的状态。请稍后重试。');
-    }
-  };
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.trackers });
+    },
+  });
 
-  const handleDeleteTracker = async (drugId: string) => {
-    const previousTrackers = trackers;
-    setTrackers(currentTrackers => deleteTrackerLocally(currentTrackers, drugId));
-
-    const deleted = await CloudStorageUtils.deleteTracker(drugId);
-    if (!deleted) {
-      setTrackers(previousTrackers);
+  const deleteTrackerMutation = useMutation({
+    mutationFn: ApiClient.deleteTracker,
+    onMutate: async (drugId: string) => {
+      await queryClient.cancelQueries({ queryKey: inventoryQueryKeys.trackers });
+      const context = getInventoryRollbackContext(queryClient);
+      deleteTrackerOptimistically(queryClient, drugId);
+      return context;
+    },
+    onError: (_error, _drugId, context) => {
+      if (context) restoreInventoryRollbackContext(queryClient, context);
       reportStorageFailure('停用库存追踪失败，已恢复到停用前的状态。请稍后重试。');
-    }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: inventoryQueryKeys.trackers });
+    },
+  });
+
+  const handleSaveProfile = (p: DrugProfile) => {
+    saveProfileMutation.mutate(p);
   };
 
-  const handleQuickAdjustTracker = async (tracker: DrugTracker, currentInv: number, adjustment: number) => {
-    const previousTrackers = trackers;
-    const updated = InventoryEngine.recalibrate(tracker, currentInv + adjustment);
-    setTrackers(currentTrackers => upsertTracker(currentTrackers, updated));
+  const handleDeleteProfile = (id: string) => {
+    deleteProfileMutation.mutate(id);
+  };
 
-    const saved = await CloudStorageUtils.saveTracker(updated);
-    if (!saved) {
-      setTrackers(previousTrackers);
-      reportStorageFailure('库存微调失败，已恢复到调整前的状态。请稍后重试。');
-    }
+  const handleSaveTracker = (t: DrugTracker) => {
+    setShowAddTrackerForm(false);
+    setEditingTracker(null);
+    saveTrackerMutation.mutate(t);
+  };
+
+  const handleDeleteTracker = (drugId: string) => {
+    deleteTrackerMutation.mutate(drugId);
+  };
+
+  const handleQuickAdjustTracker = (tracker: DrugTracker, currentInv: number, adjustment: number) => {
+    const updated = InventoryEngine.recalibrate(tracker, currentInv + adjustment);
+    saveTrackerMutation.mutate(updated);
   };
 
   if (loading) {
