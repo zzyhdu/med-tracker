@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
+    restart: "no"
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-med_tracker}
       POSTGRES_USER: ${POSTGRES_USER:-med_tracker}
@@ -18,7 +18,7 @@ services:
   api:
     build:
       context: ./api
-    restart: unless-stopped
+    restart: "no"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -39,7 +39,7 @@ services:
   web:
     build:
       context: ./web
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       - api
     ports:
