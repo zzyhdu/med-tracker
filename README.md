@@ -5,7 +5,8 @@
 - `web/`: React + Vite 前端
 - `api/`: Node.js API
 - `docs/`: 架构和部署文档
-- `docker-compose.yml`: 本地或 ECS 单机部署编排
+- `deploy/sites-stack/`: 与 `sites-stack` 总控仓库配合的部署契约
+- `deploy/self-hosted/`: 单仓库自托管或本地 Docker 预览
 
 常用命令：
 
@@ -26,8 +27,15 @@ npm run lint
 npm run audit
 ```
 
-本机 Docker 预览：
+生产部署由 `~/workspace/sites-stack` 的根 `compose.yml` 统一编排。本仓库作为
+`sites/med-tracker` submodule 时，只提供 `web/Dockerfile`、`api/Dockerfile`、
+`web/nginx.conf` 和 `api/schema.sql`。
+
+本机 Docker 预览或单仓库自托管：
 
 ```bash
-POSTGRES_PASSWORD=example WEB_PORT=8080 docker compose up -d --build
+cp deploy/self-hosted/.env.example deploy/self-hosted/.env
+npm run selfhost:up
 ```
+
+默认访问 `http://127.0.0.1:8080/`。

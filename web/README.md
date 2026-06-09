@@ -1,6 +1,7 @@
 # med-tracker web
 
-React + Vite 前端应用。生产环境由根目录的 `docker-compose.yml` 构建，并交给 Nginx 托管静态文件。
+React + Vite 前端应用。生产镜像由 `web/Dockerfile` 构建，并交给 Nginx 托管静态文件。
+在 `sites-stack` 中，前端容器通过 Docker DNS 访问 `api:3000`。
 
 常用命令：
 

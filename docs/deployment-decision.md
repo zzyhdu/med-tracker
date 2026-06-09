@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前仓库已经整理为部署根目录。`web/` 是 Vite + React 前端应用，生产构建后产物是 `web/dist/` 静态文件；`api/` 是自托管 Node API。
+当前仓库已经整理为应用源码仓库。`web/` 是 Vite + React 前端应用，生产构建后产物是 `web/dist/` 静态文件；`api/` 是自托管 Node API。共享 ECS 的生产部署拓扑由 `sites-stack` 根仓库统一维护。
 
 现有数据层依赖 Supabase，Supabase 同时承担了以下职责：
 
@@ -21,8 +21,13 @@
 ```text
 ECS
   Docker Compose
-    nginx-web
+    caddy
       - 对外暴露 80/443
+      - 统一公网入口
+      - 将 med.yangsan.online 反向代理到 med-tracker 前端
+
+    med-tracker nginx-web
+      - 只在 Docker 网络内暴露 80
       - 托管 React 构建产物
       - 将 /api/* 反向代理到 api 服务
 
@@ -37,13 +42,13 @@ ECS
       - 使用 volume 持久化数据
 ```
 
-浏览器只访问 Nginx，不直接访问 Node API 容器或 PostgreSQL 容器。
+浏览器只访问 Caddy，不直接访问前端 Nginx、Node API 容器或 PostgreSQL 容器。
 
 ## 为什么选择这个方案
 
 ### 适合少数人使用
 
-该系统使用人数少，业务表也少。将 Nginx、Node API、PostgreSQL 都部署在同一台 ECS 上，结构简单、成本低、排查问题直接。
+该系统使用人数少，业务表也少。将 Caddy、Nginx、Node API、PostgreSQL 都部署在同一台 ECS 上，结构简单、成本低、排查问题直接。
 
 相比一开始就使用 RDS，这个方案减少了云资源成本。后续如果使用量增加，或对数据可靠性要求提高，可以再把 PostgreSQL 迁移到阿里云 RDS PostgreSQL。
 
@@ -78,7 +83,7 @@ Nginx 镜像
   -> 对外提供静态文件访问
 ```
 
-这样 ECS 上不需要直接安装 Node/npm 来构建前端，部署时可以通过 Docker Compose 统一管理前端、API、数据库和网络。
+这样 ECS 上不需要直接安装 Node/npm 来构建前端，部署时可以通过 `sites-stack` 的 Docker Compose 统一管理前端、API、数据库和网络。
 
 ## 目标架构
 
@@ -87,7 +92,11 @@ Nginx 镜像
   |
   | HTTPS
   v
-Nginx 容器
+Caddy 容器
+  |
+  | med.yangsan.online -> med-tracker:80
+  v
+med-tracker Nginx 容器
   |
   | /                 -> React dist 静态文件
   | /assets/*          -> React 静态资源
@@ -100,22 +109,29 @@ Node API 容器
 PostgreSQL 容器
 ```
 
-只有 Nginx 需要暴露公网端口：
+只有 Caddy 需要暴露公网端口：
 
 - `80`: HTTP，后续可重定向到 HTTPS
 - `443`: HTTPS
 
-API 和数据库不暴露到公网。
+前端 Nginx、API 和数据库不映射宿主机公网端口。
 
 ## 服务职责划分
+
+### caddy
+
+职责：
+
+- 统一公网入口
+- 配置 HTTPS
+- HTTP 跳转 HTTPS
+- 按域名反向代理到站点前端容器
 
 ### nginx-web
 
 职责：
 
 - 托管 React 构建产物
-- 配置 HTTPS
-- HTTP 跳转 HTTPS
 - 反向代理 `/api/*` 到 Node API
 - 设置静态资源缓存策略
 
@@ -272,10 +288,10 @@ Nginx：
 4. 将前端 Supabase 调用替换为 `/api` 调用。已完成。
 5. 新增前端 Nginx Dockerfile。已完成。
 6. 新增 API Dockerfile。已完成。
-7. 新增 `docker-compose.yml`。已完成。
-8. 在 ECS 安装 Docker 和 Docker Compose。
-9. 配置 `.env`。
-10. 执行 `docker compose up -d --build`。
+7. 新增 `deploy/self-hosted/compose.yml`。已完成。
+8. 在 `sites-stack` 中把本仓库作为 `sites/med-tracker` submodule 引入。已完成。
+9. 在 `sites-stack` 根 `compose.yml` 中定义 Caddy、前端、API、PostgreSQL、network 和 volume。已完成。
+10. 在 `sites-stack` 根 `.env` 配置生产环境变量，并执行 `./scripts/up-stack.sh`。
 11. 配置域名解析到 ECS 公网 IP。
 12. 配置 HTTPS 证书。
 13. 配置数据库自动备份。
@@ -299,10 +315,10 @@ ECS
 
 ## 当前决策
 
-当前阶段采用：
+当前阶段共享 ECS 生产环境采用：
 
 ```text
-ECS + Docker Compose + Nginx 静态前端 + Node API + PostgreSQL 容器
+sites-stack + Caddy + Docker Compose + Nginx 静态前端 + Node API + PostgreSQL 容器
 ```
 
 该方案成本低、部署统一、适合少数人使用，并为后续迁移到 RDS 保留了清晰路径。

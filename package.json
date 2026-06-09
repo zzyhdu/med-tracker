@@ -10,7 +10,10 @@
     "build": "npm --prefix web run build",
     "lint": "npm --prefix web run lint",
     "audit": "npm --prefix web audit && npm --prefix api audit",
-    "compose:up": "docker compose up -d --build",
-    "compose:down": "docker compose down"
+    "selfhost:up": "docker compose -f deploy/self-hosted/compose.yml --env-file deploy/self-hosted/.env up -d --build",
+    "selfhost:down": "docker compose -f deploy/self-hosted/compose.yml --env-file deploy/self-hosted/.env down",
+    "selfhost:create-user": "docker compose -f deploy/self-hosted/compose.yml --env-file deploy/self-hosted/.env exec api npm run create-user --",
+    "compose:up": "npm run selfhost:up",
+    "compose:down": "npm run selfhost:down"
   }
 }
