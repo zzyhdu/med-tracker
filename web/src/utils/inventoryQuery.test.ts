@@ -1,47 +1,60 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { QueryClient } from '@tanstack/react-query';
-import type { DrugProfile, DrugTracker } from './InventoryEngine';
+import type { DrugProfile, DrugSpec, DrugTracker } from './InventoryEngine';
 import {
+  deleteDrugOptimistically,
   deleteProfileOptimistically,
   deleteTrackerOptimistically,
   getInventoryRollbackContext,
   inventoryQueryKeys,
   invalidateInventoryQueries,
+  saveDrugOptimistically,
   saveProfileOptimistically,
   saveTrackerOptimistically,
 } from './inventoryQuery';
 
+const drugA: DrugSpec = {
+  id: 'da',
+  createdBy: 'u1',
+  name: '阿莫西林',
+  packagingSize: 24,
+  packagingUnit: '盒',
+  pillUnit: '粒',
+};
+
 const profileA: DrugProfile = {
-  id: 'a',
-  name: 'A',
+  id: 'pa',
+  drugId: 'da',
   dailyDosage: 1,
   alertThresholdDays: 7,
 };
 
 const profileB: DrugProfile = {
-  id: 'b',
-  name: 'B',
+  id: 'pb',
+  drugId: 'db',
   dailyDosage: 2,
   alertThresholdDays: 14,
 };
 
 const trackerA: DrugTracker = {
-  drugId: 'a',
+  profileId: 'pa',
   baseInventory: 10,
   baseDate: '2026-01-01T00:00:00.000Z',
 };
 
 const trackerB: DrugTracker = {
-  drugId: 'b',
+  profileId: 'pb',
   baseInventory: 20,
   baseDate: '2026-01-01T00:00:00.000Z',
 };
 
 function createQueryClientStub(initial: {
+  drugs?: DrugSpec[];
   profiles?: DrugProfile[];
   trackers?: DrugTracker[];
 }) {
   const cache = new Map<string, unknown>();
+  cache.set(JSON.stringify(inventoryQueryKeys.drugs), initial.drugs);
   cache.set(JSON.stringify(inventoryQueryKeys.profiles), initial.profiles);
   cache.set(JSON.stringify(inventoryQueryKeys.trackers), initial.trackers);
 
@@ -63,18 +76,42 @@ function createQueryClientStub(initial: {
 }
 
 describe('inventory query helpers', () => {
-  it('captures profile and tracker rollback context from the query cache', () => {
-    const { client } = createQueryClientStub({ profiles: [profileA], trackers: [trackerA] });
+  it('captures drug, profile and tracker rollback context from the query cache', () => {
+    const { client } = createQueryClientStub({ drugs: [drugA], profiles: [profileA], trackers: [trackerA] });
 
     expect(getInventoryRollbackContext(client)).toEqual({
+      previousDrugs: [drugA],
       previousProfiles: [profileA],
       previousTrackers: [trackerA],
     });
   });
 
+  it('optimistically saves a drug in the query cache', () => {
+    const { client, cache } = createQueryClientStub({ drugs: [drugA] });
+    const updatedDrug = { ...drugA, name: '阿莫西林（胶囊）' };
+
+    saveDrugOptimistically(client, updatedDrug);
+
+    expect(cache.get(JSON.stringify(inventoryQueryKeys.drugs))).toEqual([updatedDrug]);
+  });
+
+  it('optimistically deletes a drug with its profiles and trackers', () => {
+    const { client, cache } = createQueryClientStub({
+      drugs: [drugA],
+      profiles: [profileA, profileB],
+      trackers: [trackerA, trackerB],
+    });
+
+    deleteDrugOptimistically(client, 'da');
+
+    expect(cache.get(JSON.stringify(inventoryQueryKeys.drugs))).toEqual([]);
+    expect(cache.get(JSON.stringify(inventoryQueryKeys.profiles))).toEqual([profileB]);
+    expect(cache.get(JSON.stringify(inventoryQueryKeys.trackers))).toEqual([trackerB]);
+  });
+
   it('optimistically saves a profile in the query cache', () => {
     const { client, cache } = createQueryClientStub({ profiles: [profileA] });
-    const updatedProfile = { ...profileA, name: 'A updated' };
+    const updatedProfile = { ...profileA, dailyDosage: 3 };
 
     saveProfileOptimistically(client, updatedProfile);
 
@@ -84,7 +121,7 @@ describe('inventory query helpers', () => {
   it('optimistically deletes a profile and its tracker in the query cache', () => {
     const { client, cache } = createQueryClientStub({ profiles: [profileA, profileB], trackers: [trackerA, trackerB] });
 
-    deleteProfileOptimistically(client, 'a');
+    deleteProfileOptimistically(client, 'pa');
 
     expect(cache.get(JSON.stringify(inventoryQueryKeys.profiles))).toEqual([profileB]);
     expect(cache.get(JSON.stringify(inventoryQueryKeys.trackers))).toEqual([trackerB]);
@@ -97,15 +134,16 @@ describe('inventory query helpers', () => {
     saveTrackerOptimistically(client, updatedTracker);
     expect(cache.get(JSON.stringify(inventoryQueryKeys.trackers))).toEqual([updatedTracker]);
 
-    deleteTrackerOptimistically(client, 'a');
+    deleteTrackerOptimistically(client, 'pa');
     expect(cache.get(JSON.stringify(inventoryQueryKeys.trackers))).toEqual([]);
   });
 
-  it('invalidates both inventory queries', () => {
+  it('invalidates all inventory queries', () => {
     const { client } = createQueryClientStub({});
 
     invalidateInventoryQueries(client);
 
+    expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: inventoryQueryKeys.drugs });
     expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: inventoryQueryKeys.profiles });
     expect(client.invalidateQueries).toHaveBeenCalledWith({ queryKey: inventoryQueryKeys.trackers });
   });

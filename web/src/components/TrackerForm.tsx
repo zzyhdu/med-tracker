@@ -1,55 +1,84 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
-import type { DrugProfile, DrugTracker, CalculatedInventory } from '../utils/InventoryEngine';
+import type { DrugProfile, DrugSpec, DrugTracker, CalculatedInventory } from '../utils/InventoryEngine';
 
 interface Props {
   profiles: DrugProfile[];
+  drugs: DrugSpec[];
   initialData?: CalculatedInventory; // The currently calculated one
   onSave: (tracker: DrugTracker) => void;
   onCancel: () => void;
 }
 
-function getInventoryInputs(profiles: DrugProfile[], profileId: string, initialData?: CalculatedInventory) {
-  const profile = profiles.find(p => p.id === profileId);
-
-  if (!initialData || !profile) {
+function getInventoryInputs(spec: DrugSpec | undefined, initialData?: CalculatedInventory) {
+  if (!initialData || !spec) {
     return { boxes: 0, pills: 0 };
   }
 
-  const size = profile.packagingSize || 60;
+  const size = spec.packagingSize || 60;
   return {
     boxes: Math.floor(initialData.currentInventory / size),
     pills: initialData.currentInventory % size,
   };
 }
 
-export function TrackerForm({ profiles, initialData, onSave, onCancel }: Props) {
-  const initialProfileId = initialData ? initialData.id : (profiles[0]?.id || '');
-  const initialInputs = getInventoryInputs(profiles, initialProfileId, initialData);
-  const [selectedProfileId, setSelectedProfileId] = useState<string>(initialProfileId);
-  
-  const [inputBoxes, setInputBoxes] = useState<number>(initialInputs.boxes);
-  const [inputPills, setInputPills] = useState<number>(initialInputs.pills);
+/** 日期输入框需要的本地 yyyy-mm-dd 格式（不能用 toISOString，会偏到 UTC 前一天） */
+function toDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-  const selectedProfile = profiles.find(p => p.id === selectedProfileId);
+export function TrackerForm({ profiles, drugs, initialData, onSave, onCancel }: Props) {
+  const specById = useMemo(() => new Map(drugs.map(drug => [drug.id, drug])), [drugs]);
+
+  // 只列出规格仍然存在的医嘱，规格被删的医嘱无法追踪
+  const trackableProfiles = useMemo(
+    () => profiles.filter(profile => specById.has(profile.drugId)),
+    [profiles, specById],
+  );
+
+  const initialProfileId = initialData ? initialData.profileId : (trackableProfiles[0]?.id || '');
+  const [selectedProfileId, setSelectedProfileId] = useState<string>(initialProfileId);
+
+  const selectedProfile = trackableProfiles.find(p => p.id === selectedProfileId);
+  const selectedSpec = selectedProfile ? specById.get(selectedProfile.drugId) : undefined;
+
+  const [inputBoxes, setInputBoxes] = useState<number>(() => getInventoryInputs(
+    initialData ? specById.get(initialData.drugId) : undefined,
+    initialData,
+  ).boxes);
+  const [inputPills, setInputPills] = useState<number>(() => getInventoryInputs(
+    initialData ? specById.get(initialData.drugId) : undefined,
+    initialData,
+  ).pills);
+
+  const packagingSize = selectedSpec?.packagingSize || 60;
+  const packagingUnit = selectedSpec?.packagingUnit || '盒';
+  const pillUnit = selectedSpec?.pillUnit || '粒';
+
+  // 起始日期决定每日自动扣减从哪天算起，允许早于录入当天（如几天前就开始服药）
+  const today = toDateInputValue(new Date());
+  const [startDate, setStartDate] = useState<string>(today);
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (!selectedProfile) return;
-    
-    const size = selectedProfile.packagingSize || 60;
-    const totalCalculatedInventory = (Number(inputBoxes) * size) + Number(inputPills);
+    if (!startDate || startDate > today) return;
+
+    const totalCalculatedInventory = (Number(inputBoxes) * packagingSize) + Number(inputPills);
     if (totalCalculatedInventory < 0) return;
 
     onSave({
-      drugId: selectedProfile.id,
+      profileId: selectedProfile.id,
       baseInventory: totalCalculatedInventory,
-      baseDate: new Date().toISOString()
+      baseDate: new Date(`${startDate}T00:00:00`).toISOString()
     });
   };
 
-  if (!selectedProfile) {
-    return <div className="card">无可用药品字典，请先去配置库添加。</div>;
+  if (!selectedProfile || !selectedSpec) {
+    return <div className="card">无可用医嘱，请先去规格库为您的药建立医嘱。</div>;
   }
 
   return (
@@ -64,43 +93,62 @@ export function TrackerForm({ profiles, initialData, onSave, onCancel }: Props) 
           -moz-appearance: textfield;
         }
       `}</style>
-      <h2>{initialData ? '盘点校准库存 / 批量补齐录入' : '开始追踪新药'}</h2>
+      <h2>{initialData ? '校准库存' : '添加库存追踪'}</h2>
       <form onSubmit={handleSubmit} style={{ marginTop: '16px' }}>
         <div className="input-block">
-          <label>关联药品字典规格</label>
-          <select 
-            value={selectedProfileId} 
-            onChange={(e) => setSelectedProfileId(e.target.value)} 
+          <label>药品（来自您的医嘱）</label>
+          <select
+            value={selectedProfileId}
+            onChange={(e) => setSelectedProfileId(e.target.value)}
             disabled={!!initialData}
             style={{ width: '100%', padding: '12px 16px', borderRadius: '12px', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg)' }}
           >
-            {profiles.map(p => (
-              <option key={p.id} value={p.id}>{p.name} (1{p.packagingUnit}={p.packagingSize}{p.pillUnit})</option>
-            ))}
+            {trackableProfiles.map(profile => {
+              const spec = specById.get(profile.drugId);
+              return (
+                <option key={profile.id} value={profile.id}>
+                  {spec?.name} (1{spec?.packagingUnit || '盒'}={spec?.packagingSize || 60}{spec?.pillUnit || '粒'})
+                </option>
+              );
+            })}
           </select>
         </div>
 
         <div className="input-block">
-          <label>{initialData ? '覆盖盘点：请输入目前手里真实的余货总量' : '请输入目前的初始库存量'}</label>
+          <label>{initialData ? '盘点日期（库存从该日起重新推算）' : '开始服用日期（库存从该日起推算）'}</label>
+          <input
+            type="date"
+            value={startDate}
+            max={today}
+            onChange={e => setStartDate(e.target.value)}
+            required
+          />
+          <p style={{ fontSize: '0.85rem', marginTop: '8px', color: 'var(--color-text-tertiary)' }}>
+            默认今天。若几天前已开始服用，请选实际起始日，系统会补齐期间的每日扣减。
+          </p>
+        </div>
+
+        <div className="input-block">
+          <label>{initialData ? '盘点当天的实际余量' : '请输入起始日期当天的库存量'}</label>
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
             <div style={{ flex: 1, position: 'relative' }}>
               <input type="number" value={inputBoxes} onChange={e => setInputBoxes(Number(e.target.value))} min={0} />
-              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{selectedProfile.packagingUnit}</div>
+              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{packagingUnit}</div>
             </div>
             <span>余</span>
             <div style={{ flex: 1, position: 'relative' }}>
               <input type="number" value={inputPills} onChange={e => setInputPills(Number(e.target.value))} min={0} />
-              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{selectedProfile.pillUnit}</div>
+              <div style={{ position: 'absolute', right: '12px', top: '12px', color: 'var(--color-text-secondary)' }}>{pillUnit}</div>
             </div>
           </div>
           <p style={{ fontSize: '0.85rem', marginTop: '8px', color: 'var(--color-accent)', fontWeight: 600 }}>
-            转换合并计算底层记录值：{(Number(inputBoxes) * (selectedProfile.packagingSize || 60)) + Number(inputPills)} {selectedProfile.pillUnit || '粒'}
+            合计 {(Number(inputBoxes) * packagingSize) + Number(inputPills)} {pillUnit}
           </p>
         </div>
 
         <div className="flex-between gap-4" style={{ marginTop: '24px' }}>
           <button type="button" className="btn" onClick={onCancel} style={{ flex: 1 }}>取消</button>
-          <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>{initialData ? '保存校准记录' : '开始系统管理'}</button>
+          <button type="submit" className="btn btn-primary" style={{ flex: 2 }}>{initialData ? '保存' : '开始追踪'}</button>
         </div>
       </form>
     </div>

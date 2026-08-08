@@ -1,4 +1,4 @@
-import type { DrugProfile, DrugTracker } from './InventoryEngine';
+import type { DrugProfile, DrugSpec, DrugTracker } from './InventoryEngine';
 
 export interface AuthUser {
   id: string;
@@ -11,6 +11,14 @@ interface SessionResponse {
 
 interface LoginResponse {
   user: AuthUser;
+}
+
+interface DrugsResponse {
+  drugs: DrugSpec[];
+}
+
+interface DrugResponse {
+  drug: DrugSpec;
 }
 
 interface ProfilesResponse {
@@ -95,6 +103,26 @@ export class ApiClient {
     return data.ok;
   }
 
+  static async listDrugs(): Promise<DrugSpec[]> {
+    const data = await request<DrugsResponse>('/api/drugs');
+    return data.drugs;
+  }
+
+  static async saveDrug(drug: DrugSpec): Promise<DrugSpec> {
+    const data = await request<DrugResponse>(`/api/drugs/${encodeURIComponent(drug.id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(drug),
+    });
+    return data.drug;
+  }
+
+  static async deleteDrug(drugId: string): Promise<boolean> {
+    const data = await request<OkResponse>(`/api/drugs/${encodeURIComponent(drugId)}`, {
+      method: 'DELETE',
+    });
+    return data.ok;
+  }
+
   static async listProfiles(): Promise<DrugProfile[]> {
     const data = await request<ProfilesResponse>('/api/profiles');
     return data.profiles;
@@ -121,15 +149,15 @@ export class ApiClient {
   }
 
   static async saveTracker(tracker: DrugTracker): Promise<DrugTracker> {
-    const data = await request<TrackerResponse>(`/api/trackers/${encodeURIComponent(tracker.drugId)}`, {
+    const data = await request<TrackerResponse>(`/api/trackers/${encodeURIComponent(tracker.profileId)}`, {
       method: 'PUT',
       body: JSON.stringify(tracker),
     });
     return data.tracker;
   }
 
-  static async deleteTracker(drugId: string): Promise<boolean> {
-    const data = await request<OkResponse>(`/api/trackers/${encodeURIComponent(drugId)}`, {
+  static async deleteTracker(profileId: string): Promise<boolean> {
+    const data = await request<OkResponse>(`/api/trackers/${encodeURIComponent(profileId)}`, {
       method: 'DELETE',
     });
     return data.ok;
