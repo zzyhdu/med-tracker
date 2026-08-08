@@ -51,6 +51,23 @@ schema，不在仓库根目录维护生产 Compose 拓扑。
 deploy/sites-stack/README.md
 ```
 
+## 数据库升级（已有数据的实例）
+
+`api/schema.sql` 只适用于全新实例（`create table if not exists`，不会改动已有表）。
+旧版本升级时必须先按顺序执行 `api/migrations/` 里的迁移脚本，再重建容器：
+
+```bash
+# 在 ECS 上、重建新容器之前执行（容器名以 sites-stack 实际为准）
+cat sites/med-tracker/api/migrations/001_spec_library.sql \
+  | docker exec -i med-tracker-postgres psql -U "$POSTGRES_USER" "$POSTGRES_DB"
+```
+
+迁移脚本是幂等、单事务的：可重复执行；旧数据异常会整体回滚并报错，
+不会留下半迁移状态。执行完再 `./scripts/up-stack.sh` 重建。
+
+注意：`001_spec_library.sql` 会把旧医嘱按（用户， 药名）拆出共享规格。
+若同一用户曾建过两条同名药品的医嘱，唯一约束会让迁移报错——先手工合并再重跑。
+
 ## 单仓库自托管
 
 这套 Compose 只用于本地 Docker 预览或脱离 `sites-stack` 的单仓库运行。
