@@ -88,6 +88,35 @@ docker compose -f deploy/self-hosted/compose.yml --env-file deploy/self-hosted/.
 npm run selfhost:down
 ```
 
+## 数据同步（本地 → 线上）
+
+### 网页界面（推荐）
+
+「标准规格字典库」页 →「备份与迁移」：源实例登录后点「下载备份文件（JSON）」，
+目标实例登录后点「导入备份」选择该文件。关联键是药品名，与实例无关；
+规格按名字复用或新建，医嘱按药品覆盖，追踪 upsert，重复导入不产生重复数据。
+
+### 命令行脚本
+
+`api/scripts/sync-to-remote.js` 通过 HTTP API 把一台实例的数据搬到另一台实例，
+不需要 SSH 或数据库端口暴露。同步内容：共享药物规格、当前账号的医嘱、库存追踪。
+
+幂等：规格按名字复用、医嘱按 (用户, 药品) 更新、追踪 upsert，重复执行不产生重复数据。
+
+预演（只读，先核对要搬什么）：
+
+```bash
+SOURCE_EMAIL=dev@example.com SOURCE_PASSWORD=xxx npm --prefix api run sync-remote -- --dry-run
+```
+
+正式执行（默认目标 `https://med.yangsan.online`，用 `TARGET_BASE` 可改）：
+
+```bash
+SOURCE_EMAIL=dev@example.com SOURCE_PASSWORD=xxx \
+TARGET_EMAIL=you@example.com TARGET_PASSWORD=yyy \
+npm --prefix api run sync-remote
+```
+
 ## 备份
 
 最低备份命令：

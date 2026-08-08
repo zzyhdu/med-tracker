@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "create-user": "node scripts/create-user.js"
+    "create-user": "node scripts/create-user.js",
+    "sync-remote": "node scripts/sync-to-remote.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
