@@ -26,6 +26,7 @@ import { InventoryDashboard } from './components/InventoryDashboard';
 import { DrugLibraryPanel } from './components/DrugLibraryPanel';
 import { TrackerForm } from './components/TrackerForm';
 import { ActionsPage } from './components/ActionsPage';
+import { SchedulePage } from './components/SchedulePage';
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -115,7 +116,7 @@ interface MainAppProps {
 }
 
 function MainApp({ userId, onLogout, onNotify, toast, onDismissToast }: MainAppProps) {
-  const [activeTab, setActiveTab] = useState<'actions' | 'dashboard' | 'library'>('actions');
+  const [activeTab, setActiveTab] = useState<'actions' | 'schedule' | 'dashboard' | 'library'>('actions');
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const queryClient = useQueryClient();
 
@@ -527,6 +528,13 @@ function MainApp({ userId, onLogout, onNotify, toast, onDismissToast }: MainAppP
             今日服药
           </button>
           <button
+            className={`btn ${activeTab === 'schedule' ? 'btn-primary' : ''}`}
+            style={{ flex: 1, boxShadow: 'none' }}
+            onClick={() => setActiveTab('schedule')}
+          >
+            日程
+          </button>
+          <button
             className={`btn ${activeTab === 'dashboard' ? 'btn-primary' : ''}`}
             style={{ flex: 1, boxShadow: 'none' }}
             onClick={() => setActiveTab('dashboard')}
@@ -550,6 +558,14 @@ function MainApp({ userId, onLogout, onNotify, toast, onDismissToast }: MainAppP
             drugs={drugs}
             trackers={trackers}
             onQuickAdjust={handleQuickAdjustTracker}
+          />
+        )}
+
+        {activeTab === 'schedule' && (
+          <SchedulePage
+            profiles={profiles}
+            drugs={drugs}
+            trackers={trackers}
           />
         )}
 
